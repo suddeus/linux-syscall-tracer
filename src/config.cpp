@@ -77,16 +77,14 @@ std::optional<Config> getConfig(const int argc, char* argv[]) {
     }
 
     if (curr_arg == "-p" || curr_arg == "--pid") {
-        result_config.command = std::nullopt;
+        result_config.command_argc = std::nullopt;
+        result_config.command_argv = std::nullopt;
         curr_arg = argv[++curr_arg_number];
         result_config.process_pid = std::strtol(curr_arg.c_str(), nullptr, 10);
     } else {
         result_config.process_pid = std::nullopt;
-        result_config.command = "";
-        while (curr_arg_number < argc) {
-            curr_arg = argv[curr_arg_number++];
-            result_config.command.value() += curr_arg + " ";
-        }
+        result_config.command_argc = argc - curr_arg_number;
+        result_config.command_argv = argv + curr_arg_number;
     }
 
     return result_config;

@@ -7,7 +7,8 @@
 #include <cstdint>
 
 struct Config {
-    std::optional<std::string> command = std::nullopt;
+    std::optional<int> command_argc = std::nullopt;
+    std::optional<char**> command_argv = std::nullopt;
     std::optional<std::uint64_t> process_pid = std::nullopt;
     std::optional<std::string> output_file = std::nullopt;
     std::optional<std::set<std::uint64_t>> traced_syscalls = std::nullopt;
