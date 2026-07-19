@@ -44,22 +44,39 @@ void Tracer::trace() const {
 
             if (syscall.has_value()) {
                 std::cout << syscall.value().name << "(";
+                std::vector<std::string> formatted_args;
+                formatted_args.reserve(syscall.value().args.size());
                 for (int arg_index = 0; arg_index < syscall.value().args.size(); arg_index++) {
-                    std::cout << handleRegisterValue(
+                    const auto register_value = handleRegisterValue(
                         syscall.value().args[arg_index],
                         args[arg_index],
                         static_cast<pid_t>(starter_->getPid())
-                        ) << (arg_index == syscall.value().args.size() - 1 ? "" : ", ");
+                        );
+                    if (register_value.has_value()) {
+                        formatted_args.push_back(register_value.value());
+                    }
                 }
+                for (int arg_index = 0; arg_index < formatted_args.size(); arg_index++) {
+                    std::cout << formatted_args[arg_index] << (arg_index != formatted_args.size() - 1 ? ", " : "");
+                }
+
                 std::cout << ")";
             } else {
                 std::cout << "Unknown syscall[" << syscall_code << "](";
+                std::vector<std::string> formatted_args;
+                formatted_args.reserve(6);
                 for (int arg_index = 0; arg_index < args.size(); arg_index++) {
-                    std::cout << handleRegisterValue(
+                    const auto register_value = handleRegisterValue(
                         SyscallArgType::HEX,
                         args[arg_index],
                         static_cast<pid_t>(starter_->getPid())
-                        ) << (arg_index == args.size() - 1 ? "" : ", ");
+                        );
+                    if (register_value.has_value()) {
+                        formatted_args.push_back(register_value.value());
+                    }
+                }
+                for (int arg_index = 0; arg_index < formatted_args.size(); arg_index++) {
+                    std::cout << formatted_args[arg_index] << (arg_index != formatted_args.size() - 1 ? ", " : "");
                 }
                 std::cout << ")";
             }

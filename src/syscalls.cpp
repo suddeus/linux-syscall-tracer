@@ -42,7 +42,7 @@ std::optional<SyscallInfo> getSyscallInfo(std::uint64_t syscall_code) {
     return *syscall;
 }
 
-std::string handleRegisterValue(const SyscallArgType type, const RegisterValue value, const pid_t process_pid) {
+std::optional<std::string> handleRegisterValue(const SyscallArgType type, const RegisterValue value, const pid_t process_pid) {
     if (!TYPE_HANDLERS.contains(type)) {
         return TYPE_HANDLERS[SyscallArgType::HEX](value, process_pid);
     }

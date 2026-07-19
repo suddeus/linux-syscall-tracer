@@ -7,10 +7,12 @@
 #include <sstream>
 #include <map>
 #include <sys/user.h>
+#include <sys/ptrace.h>
+#include <sys/types.h>
+#include <cstring>
 #include <functional>
 #include <optional>
 #include <fcntl.h>
-#include <iostream>
 
 using RegisterValue = std::uint64_t;
 
@@ -23,6 +25,7 @@ enum class SyscallArgType {
     INT,
     UINT,
     CHAR_PTR,
+    READABLE_CHAR_PTR,
     SIZE,
     UMODE,
     ULONG,
@@ -50,11 +53,11 @@ static const std::vector <SyscallInfo> SYSCALLS = {
     }, SyscallArgType::SIZE},
     {1, "write", {
         SyscallArgType::UINT,
-        SyscallArgType::CHAR_PTR,
+        SyscallArgType::READABLE_CHAR_PTR,
         SyscallArgType::SIZE
     }, SyscallArgType::SIZE},
     {2, "open", {
-        SyscallArgType::CHAR_PTR,
+        SyscallArgType::READABLE_CHAR_PTR,
         SyscallArgType::OPEN_FLAGS,
         SyscallArgType::UMODE
     }, SyscallArgType::INT},
@@ -69,12 +72,12 @@ static const std::vector <SyscallInfo> SYSCALLS = {
     }, SyscallArgType::SIZE},
     {64, "write", {
         SyscallArgType::UINT,
-        SyscallArgType::CHAR_PTR,
+        SyscallArgType::READABLE_CHAR_PTR,
         SyscallArgType::SIZE
     }, SyscallArgType::SIZE},
     {56, "openat", {
         SyscallArgType::DIR_FD,
-        SyscallArgType::CHAR_PTR,
+        SyscallArgType::READABLE_CHAR_PTR,
         SyscallArgType::OPEN_FLAGS,
         SyscallArgType::UMODE
     }, SyscallArgType::INT},
@@ -88,24 +91,70 @@ static const std::vector <SyscallInfo> SYSCALLS = {
 
 std::optional<SyscallInfo> getSyscallInfo(std::uint64_t syscall_code);
 
-inline std::map<SyscallArgType, std::function<std::string(RegisterValue, pid_t)>> TYPE_HANDLERS = {
-    {SyscallArgType::INT, [](const RegisterValue value, pid_t) -> std::string {
+inline std::map<SyscallArgType, std::function<std::optional<std::string>(RegisterValue, pid_t)>> TYPE_HANDLERS = {
+    {SyscallArgType::INT, [](const RegisterValue value, pid_t) -> std::optional<std::string> {
         return std::to_string(static_cast<std::int64_t>(value));
     }},
-    {SyscallArgType::UINT, [](const RegisterValue value, pid_t) -> std::string {
+    {SyscallArgType::UINT, [](const RegisterValue value, pid_t) -> std::optional<std::string> {
         return std::to_string(value);
     }},
-    {SyscallArgType::CHAR_PTR, [](const RegisterValue value, pid_t) -> std::string {
+    {SyscallArgType::CHAR_PTR, [](const RegisterValue value, const pid_t) -> std::optional<std::string> {
         std::ostringstream message;
         message << "0x" << std::hex << value << std::dec;
         return message.str();
     }},
-    {SyscallArgType::SIZE, [](const RegisterValue value, pid_t) -> std::string {
+    {SyscallArgType::READABLE_CHAR_PTR, [](const RegisterValue value, const pid_t process_pid) -> std::optional<std::string> {
+        if (value == 0) {
+            return "NULL";
+        }
+
+        constexpr std::size_t max_length = 4096;
+        std::string result;
+
+        constexpr std::size_t word_size = sizeof(long);
+        const auto start = static_cast<std::uintptr_t>(value);
+        auto address = start & ~(static_cast<std::uintptr_t>(word_size) - 1);
+        std::size_t skip = start - address;
+
+        while (result.size() < max_length) {
+            errno = 0;
+            const long word = ptrace(
+                PTRACE_PEEKDATA,
+                process_pid,
+                reinterpret_cast<void*>(address),
+                nullptr);
+
+            if (word == -1 && errno != 0) {
+                return result.empty() ? std::nullopt
+                                      : std::optional{"\"" + result + "\""};
+            }
+
+            char bytes[word_size];
+            std::memcpy(bytes, &word, word_size);
+
+            for (std::size_t i = skip; i < word_size && result.size() < max_length; ++i) {
+                if (bytes[i] == '\0') {
+                    return "\"" + result + "\"";
+                }
+                if (bytes[i] == '\n') {
+                    result += "\\n";
+                } else {
+                    result += bytes[i];
+                }
+            }
+
+            address += word_size;
+            skip = 0;
+        }
+
+        result += "...";
+        return "\"" + result + "\"";
+    }},
+    {SyscallArgType::SIZE, [](const RegisterValue value, pid_t) -> std::optional<std::string> {
         return std::to_string(value);
     }},
-    {SyscallArgType::UMODE, [](const RegisterValue value, pid_t) -> std::string {
+    {SyscallArgType::UMODE, [](const RegisterValue value, pid_t) -> std::optional<std::string> {
         const unsigned short mode = value;
-        std::cout << "{{{" << value << " | " << mode << "}}}";
         std::string result_mode = "---------";
 
         result_mode[0] = (mode & 0400) ? 'r' : '-';
@@ -122,17 +171,20 @@ inline std::map<SyscallArgType, std::function<std::string(RegisterValue, pid_t)>
         if (mode & 02000) result_mode[5] = (mode & 0010) ? 's' : 'S';
         if (mode & 01000) result_mode[8] = (mode & 0001) ? 't' : 'T';
 
+        if (result_mode == "---------") {
+            return std::nullopt;
+        }
         return result_mode;
     }},
-    {SyscallArgType::ULONG, [](const RegisterValue value, pid_t) -> std::string {
+    {SyscallArgType::ULONG, [](const RegisterValue value, pid_t) -> std::optional<std::string> {
         return std::to_string(value);
     }},
-    {SyscallArgType::PTR, [](const RegisterValue value, pid_t) -> std::string {
+    {SyscallArgType::PTR, [](const RegisterValue value, pid_t) -> std::optional<std::string> {
         std::ostringstream message;
         message << "0x" << std::hex << value << std::dec;
         return message.str();
     }},
-    {SyscallArgType::OPEN_FLAGS, [](const RegisterValue value, pid_t) -> std::string {
+    {SyscallArgType::OPEN_FLAGS, [](const RegisterValue value, pid_t) -> std::optional<std::string> {
         auto remaining = static_cast<unsigned int>(value);
         std::vector<std::string> flags;
 
@@ -203,15 +255,15 @@ inline std::map<SyscallArgType, std::function<std::string(RegisterValue, pid_t)>
         }
         return formatted.str();
     }},
-    {SyscallArgType::DIR_FD, [](const RegisterValue value, pid_t) -> std::string {
+    {SyscallArgType::DIR_FD, [](const RegisterValue value, pid_t) -> std::optional<std::string> {
         const int dfd = static_cast<int>(value);
         return dfd == AT_FDCWD ? "AT_FDCWD" : std::to_string(dfd);
     }},
-    {SyscallArgType::HEX, [](const RegisterValue value, pid_t) -> std::string {
+    {SyscallArgType::HEX, [](const RegisterValue value, pid_t) -> std::optional<std::string> {
         std::ostringstream message;
         message << "0x" << std::hex << value << std::dec;
         return message.str();
     }},
 };
 
-std::string handleRegisterValue(SyscallArgType type, RegisterValue value, pid_t process_pid);
+std::optional<std::string> handleRegisterValue(SyscallArgType type, RegisterValue value, pid_t process_pid);
