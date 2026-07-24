@@ -12,4 +12,5 @@ public:
 
 private:
     std::unique_ptr<BaseChildStarter> starter_;
+    std::optional<std::set<std::uint64_t>> traced_syscalls_;
 };
