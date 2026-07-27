@@ -1,7 +1,6 @@
 #pragma once
 
 #include <unistd.h>
-#include <string>
 
 class BaseChildStarter {
 public:

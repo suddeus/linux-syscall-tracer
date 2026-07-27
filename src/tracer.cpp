@@ -1,10 +1,8 @@
-#include <functional>
 #include <tracer.hpp>
 
 #include <wait.h>
 #include <iostream>
 #include <sys/ptrace.h>
-#include <algorithm>
 #include <sys/user.h>
 #include <sys/uio.h>
 #include <elf.h>
@@ -19,12 +17,27 @@ Tracer::Tracer(const Config& cfg) {
     } else {
         throw std::logic_error("Invalid config: Both of the program and the process pid are null");
     }
+
     if (cfg.traced_syscalls.has_value()) {
         traced_syscalls_ = cfg.traced_syscalls.value();
     } else {
         traced_syscalls_ = std::nullopt;
     }
+
+    if (cfg.output_file.has_value()) {
+        output_file_ = std::make_unique<std::ofstream>(cfg.output_file.value());
+
+        if (!output_file_->is_open()) {
+            throw std::logic_error("Failed while opening or creating the file");
+        }
+    }
     starter_->startChildProcess();
+}
+
+Tracer::~Tracer() {
+    if (output_file_) {
+        output_file_->close();
+    }
 }
 
 void Tracer::trace() const {
@@ -47,9 +60,10 @@ void Tracer::trace() const {
             auto [syscall_code, args] = getSyscallArgs(regs);
             const auto syscall = getSyscallInfo(syscall_code);
 
+            std::ostream& out_stream = getOutStream();
             if (!traced_syscalls_.has_value() || traced_syscalls_->contains(syscall_code)) {
                 if (syscall.has_value()) {
-                    std::cout << syscall.value().name << "(";
+                    out_stream << syscall.value().name << "(";
                     std::vector<std::string> formatted_args;
                     formatted_args.reserve(syscall.value().args.size());
                     for (int arg_index = 0; arg_index < syscall.value().args.size(); arg_index++) {
@@ -63,18 +77,18 @@ void Tracer::trace() const {
                         }
                     }
                     for (int arg_index = 0; arg_index < formatted_args.size(); arg_index++) {
-                        std::cout << formatted_args[arg_index] << (arg_index != formatted_args.size() - 1 ? ", " : "");
+                        out_stream << formatted_args[arg_index] << (arg_index != formatted_args.size() - 1 ? ", " : "");
                     }
 
-                    std::cout << ")";
+                    out_stream << ")";
                 } else {
-                    std::cout << "Unknown syscall[" << syscall_code << "](";
+                    out_stream << "Unknown syscall[" << syscall_code << "](";
                     std::vector<std::string> formatted_args;
                     formatted_args.reserve(6);
-                    for (int arg_index = 0; arg_index < args.size(); arg_index++) {
+                    for (const unsigned long arg_index : args) {
                         const auto register_value = handleRegisterValue(
                             SyscallArgType::HEX,
-                            args[arg_index],
+                            arg_index,
                             static_cast<pid_t>(starter_->getPid())
                             );
                         if (register_value.has_value()) {
@@ -82,15 +96,19 @@ void Tracer::trace() const {
                         }
                     }
                     for (int arg_index = 0; arg_index < formatted_args.size(); arg_index++) {
-                        std::cout << formatted_args[arg_index] << (arg_index != formatted_args.size() - 1 ? ", " : "");
+                        out_stream << formatted_args[arg_index] << (arg_index != formatted_args.size() - 1 ? ", " : "");
                     }
-                    std::cout << ")";
+                    out_stream << ")";
                 }
 
-                std::cout << '\n';
+                out_stream << '\n';
             }
 
             ptrace(PTRACE_SYSCALL, static_cast<__pid_t>(starter_->getPid()), nullptr, nullptr);
         }
     }
+}
+
+std::ostream &Tracer::getOutStream() const {
+    return (output_file_ ? *output_file_ : std::cout);
 }
