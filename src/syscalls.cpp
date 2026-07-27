@@ -4,7 +4,13 @@ SyscallArgs getSyscallArgs(const user_regs_struct& regs) {
     SyscallArgs syscall_args{};
 
 #if defined(__x86_64__)
-# error "syscall_tracer isn't supported x86-64 yet"
+    syscall_args.syscall_code = regs.orig_rax;
+    syscall_args.args[0] = regs.rdi;
+    syscall_args.args[1] = regs.rsi;
+    syscall_args.args[2] = regs.rdx;
+    syscall_args.args[3] = regs.r10;
+    syscall_args.args[4] = regs.r8;
+    syscall_args.args[5] = regs.r9;
 #elif defined(__aarch32__)
     syscall_args.syscall_code = regs.regs[7];
     syscall_args.args[0] = regs.regs[0];
