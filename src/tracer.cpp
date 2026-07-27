@@ -15,7 +15,7 @@ Tracer::Tracer(const Config& cfg) {
     if (cfg.command_argv.has_value()) {
         starter_ = std::make_unique<starter::ExecuteProgram>(cfg.command_argv.value());
     } else if (cfg.process_pid.has_value()) {
-        throw std::logic_error("Attaching to existing process isn't supported yet");
+        starter_ = std::make_unique<starter::ConnectToProcess>(cfg.process_pid.value());
     } else {
         throw std::logic_error("Invalid config: Both of the program and the process pid are null");
     }

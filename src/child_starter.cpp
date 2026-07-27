@@ -40,4 +40,18 @@ namespace starter {
     size_t ExecuteProgram::getPid() const {
         return pid_;
     }
+
+
+    ConnectToProcess::ConnectToProcess(const size_t process_pid) noexcept
+    : pid_(process_pid) {}
+
+    void ConnectToProcess::startChildProcess() {
+        if (ptrace(PTRACE_ATTACH, pid_, NULL, NULL) < 0) {
+            throw std::runtime_error("Failed while attach");
+        }
+    }
+
+    size_t ConnectToProcess::getPid() const {
+        return pid_;
+    }
 }
